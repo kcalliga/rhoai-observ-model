@@ -1,0 +1,5 @@
+queries:
+  - name: infrastructurelogs
+    logql: '{log_type="infrastructure",kubernetes_namespace_name="openshift-logging"} | json'
+    limit: 5000
+    direction: forward
