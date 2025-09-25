@@ -1,0 +1,15 @@
+queries:
+  - name: all_logs_sample
+    # sample logs (reduce cardinality pressure by limiting labels where possible)
+    logql: '{kubernetes_container_name!=""} |~ ".*"'
+    limit: 5000
+    direction: forward
+
+  - name: errors
+    logql: '{level=~"(?i)error|err|fatal"}'
+    limit: 10000
+
+  - name: http_4xx_5xx
+    # if your logs attach status as label; otherwise use |= parsing
+    logql: '{status=~"4..|5.."}'
+    limit: 10000
