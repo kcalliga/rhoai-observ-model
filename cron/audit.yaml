@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: loki-to-parquet-audit
+spec:
+  schedule: "3-59/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: loki-extractor
+          restartPolicy: Never
+          containers:
+            - name: extractor
+              image: quay.io/YOUR_NS/loki-to-parquet:0.1
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: LOKI_URL
+                  value: "https://logging-loki-openshift-logging.apps.logging.ocp-poc-demo.com"
+                - name: LOKI_TENANT
+                  value: "audit"
+                - name: LOKI_BEARER
+                  value: "<PUT_YOUR_BEARER_TOKEN_HERE>"
+                - name: VERIFY_TLS
+                  value: "false"
+                - name: WINDOW_MIN
+                  value: "5"
+                - name: LOKI_STEP
+                  value: "30s"
+                - name: S3_ENDPOINT
+                  value: "http://192.168.4.152:9000"
+                - name: S3_BUCKET
+                  value: "rhoai-observ-model"
+                - name: S3_PREFIX
+                  value: "loki/parquet/log_type=audit"
+                - name: AWS_ACCESS_KEY_ID
+                  value: "<KEY>"
+                - name: AWS_SECRET_ACCESS_KEY
+                  value: "<SECRET>"
+                - name: QUERIES_PATH
+                  value: "/etc/loki-extractor/queries.yaml"
+              volumeMounts:
+                - name: queries
+                  mountPath: /etc/loki-extractor/queries.yaml
+                  subPath: queries.yaml
+                  readOnly: true
+          volumes:
+            - name: queries
+              configMap:
+                name: loki-extractor-queries-audit
