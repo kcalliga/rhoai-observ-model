@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: root-cause-svc
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: root-cause-svc } }
+  template:
+    metadata: { labels: { app: root-cause-svc } }
+    spec:
+      serviceAccountName: graph-ml
+      containers:
+        - name: api
+          image: quay.io/YOUR_NS/graph-ml:0.1
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8080, name: http }]
+          env:
+            - { name: S3_ENDPOINT, value: "http://192.168.4.152:9000" }
+            - { name: S3_BUCKET,   value: "rhoai-observ-model" }
+            - { name: S3_PREFIX_GRAPH, value: "graph" }
+            - { name: AWS_ACCESS_KEY_ID, value: "<KEY>" }
+            - { name: AWS_SECRET_ACCESS_KEY, value: "<SECRET>" }
+            - { name: VERIFY_TLS, value: "false" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: root-cause-svc
+spec:
+  selector: { app: root-cause-svc }
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
