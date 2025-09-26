@@ -1,0 +1,53 @@
+id: ocp:route-5xx-spike
+title: HTTP 5xx spike on a route
+applies_when:
+  symptoms:
+    - type: http_5xx_rate
+      threshold: "> 1%"          # trigger rule
+  scope_hints: ["namespace","service","route"]
+signals:                         # what to fetch (tool calls your agent can run)
+  - name: recent_5xx
+    tool: loki_query
+    args:
+      tenant: application
+      minutes: 15
+      logql: '{log_type="application", route="{{route}}", status=~"5.."} | json'
+    parse: count_per_minute
+  - name: pod_restarts
+    tool: k8s_get
+    args: { kind: "Pod", namespace: "{{namespace}}", labelSelector: "app={{service}}" }
+    parse: restart_counts
+  - name: upstream_errors
+    tool: loki_query
+    args:
+      tenant: infrastructure
+      minutes: 15
+      logql: '{kubernetes_namespace_name="{{namespace}}", kubernetes_container_name=~"{{service}}.*"} |= "error"'
+    parse: count_per_minute
+decision_rules:                  # your reasoning, as crisp if/then rules
+  - if: "pod_restarts.total > 0"
+    then: ["check_readiness_probes", "check_recent_rollout"]
+  - if: "recent_5xx.peak > 50 && pod_restarts.total == 0"
+    then: ["check_downstream_service", "check_db_errors"]
+actions:
+  check_readiness_probes:
+    steps:
+      - "oc -n {{namespace}} get deploy {{service}} -o yaml | yq '.spec.template.spec.containers[].readinessProbe'"
+      - "oc -n {{namespace}} logs deploy/{{service}} --since=15m | grep -i 'probe|timeout'"
+    success_hint: "Probe timeouts or long startup"
+    remediation: "Increase initialDelaySeconds to 30; timeoutSeconds to 5"
+  check_recent_rollout:
+    steps:
+      - "oc -n {{namespace}} rollout history deploy/{{service}}"
+      - "oc -n {{namespace}} describe deploy/{{service}} | sed -n '/Events/,$p'"
+    remediation: "Rollback: oc -n {{namespace}} rollout undo deploy/{{service}}"
+  check_downstream_service:
+    steps:
+      - "oc -n {{namespace}} get svc {{service}} -o yaml | yq '.spec.ports'"
+      - "oc -n {{namespace}} get endpoints {{service}} -o yaml"
+    remediation: "Empty endpoints → investigate pod selectors or health"
+  check_db_errors:
+    steps:
+      - "loki: search errors mentioning db/timeout for {{service}} (app+infra tenants)"
+notes:
+  - "Exclude platform namespaces if volume is noisy."
