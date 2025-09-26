@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: graph-builder
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: graph-ml
+          restartPolicy: Never
+          containers:
+            - name: builder
+              image: quay.io/YOUR_NS/graph-ml:0.1
+              imagePullPolicy: IfNotPresent
+              command: ["python", "/app/graph_builder.py"]
+              env:
+                - { name: S3_ENDPOINT, value: "http://192.168.4.152:9000" }
+                - { name: S3_BUCKET,   value: "rhoai-observ-model" }
+                - { name: S3_PREFIX_GRAPH, value: "graph" }
+                - { name: AWS_ACCESS_KEY_ID, value: "<KEY>" }
+                - { name: AWS_SECRET_ACCESS_KEY, value: "<SECRET>" }
+                - { name: VERIFY_TLS, value: "false" }
