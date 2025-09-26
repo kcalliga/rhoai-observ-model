@@ -1,0 +1,15 @@
+{
+  "id": "episode-2025-09-25-payments-5xx",
+  "context": {"namespace": "payments", "service": "payments-api", "route":"apps/payments"},
+  "symptoms": ["5xx spike at 13:05Z", "pods restarting"],
+  "timeline": [
+    {"t":"+00", "action":"loki_query", "args":{"tenant":"application","logql":"{route=\"apps/payments\",status=~\"5..\"}|json","minutes":15}, "observation":"5xx peaked to 8% at 13:05"},
+    {"t":"+01", "action":"k8s_get", "args":{"kind":"Pod","namespace":"payments","labelSelector":"app=payments-api"}, "observation":"2 pods CrashLoopBackOff"},
+    {"t":"+03", "decision":"check_readiness_probes", "reason":"restarts > 0"},
+    {"t":"+05", "observation":"readiness timeout 1s; service cold-start ~20s"},
+    {"t":"+06", "remediation":"increase readinessProbe initialDelaySeconds to 30; timeoutSeconds 5"},
+    {"t":"+20", "observation":"5xx < 0.5%, restarts stable"}
+  ],
+  "root_cause":"under-provisioned readiness probe",
+  "lessons":["align probe timeouts with startup time","add warmup route"]
+}
