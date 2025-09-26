@@ -1,0 +1,29 @@
+rules:
+  - match:
+      type: "Service"
+    title: "Service issues likely at {{node_id}}"
+    steps:
+      - "oc -n {{namespace}} get svc {{name}} -o yaml | less"
+      - "Check Endpoints/EndpointSlice are non-empty: oc -n {{namespace}} get endpoints {{name}} -o yaml"
+      - "Compare errors/latency in downstream services from graph."
+  - match:
+      type: "Deployment"
+    title: "Deployment problems likely at {{node_id}}"
+    steps:
+      - "oc -n {{namespace}} get deploy {{name}}"
+      - "oc -n {{namespace}} describe deploy {{name}} | sed -n '/Events/,$p'"
+      - "Check recent rollout: oc -n {{namespace}} rollout history deploy/{{name}}"
+      - "Inspect pods: oc -n {{namespace}} get pods -l app={{name}}"
+  - match:
+      type: "Pod"
+    title: "Pod-level faults likely at {{node_id}}"
+    steps:
+      - "oc -n {{namespace}} describe pod {{name}}"
+      - "oc -n {{namespace}} logs {{name}} --all-containers --since=15m"
+      - "Check restarts & probes; verify ConfigMap/Secret mounts and PVC health."
+  - match:
+      type: "Ingress"
+    title: "Ingress/Route issues near {{node_id}}"
+    steps:
+      - "oc -n {{namespace}} get ingress {{name}} -o yaml"
+      - "Verify backend Service endpoints and external LB health."
