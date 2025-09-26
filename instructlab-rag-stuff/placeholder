@@ -1,0 +1,11 @@
+docs/ — OpenShift docs, operator manuals, API reference (split into chunks)
+
+code/ — OpenAPI/CRDs, example oc commands, internal SDK snippets
+
+tickets/ — past incidents: tickets, RCAs, Slack summaries
+
+graph/ — our nodes.parquet, edges.parquet snapshots (already defined)
+
+signals/ — 5-min features + anomaly flags (already defined)
+
+runbooks/ — your remediation templates
