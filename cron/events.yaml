@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: events-to-parquet
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: events-scraper
+          restartPolicy: Never
+          containers:
+            - name: scraper
+              image: quay.io/YOUR_NS/events-to-parquet:0.1
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: WINDOW_MIN
+                  value: "5"
+                - name: S3_ENDPOINT
+                  value: "http://192.168.4.152:9000"
+                - name: S3_BUCKET
+                  value: "rhoai-observ-model"
+                - name: S3_PREFIX
+                  value: "k8s/events/parquet"
+                - name: AWS_ACCESS_KEY_ID
+                  value: "<KEY>"
+                - name: AWS_SECRET_ACCESS_KEY
+                  value: "<SECRET>"
+                # If your S3 requires TLS & valid CA, set VERIFY_TLS=true and mount CA if needed
+                - name: VERIFY_TLS
+                  value: "false"
