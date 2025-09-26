@@ -166,4 +166,88 @@ def build_graph():
     # StatefulSets -> Pods
     for ss in apps.list_stateful_set_for_all_namespaces().items:
         sid = nid("statefulset", ss.metadata.namespace, ss.metadata.name)
-        nodes[sid] = {"node_id":sid,"type":"StatefulSet","namespace":ss.metadata.names_
+        nodes[sid] = {"node_id":sid,"type":"StatefulSet","namespace":ss.metadata.namespace,"labels":json.dumps(ss.metadata.labels or {})}
+        # pods owned directly
+        # (owner refs already on pods; we don’t need explicit mapping here)
+
+    # DaemonSets
+    for ds in apps.list_daemon_set_for_all_namespaces().items:
+        did = nid("daemonset", ds.metadata.namespace, ds.metadata.name)
+        nodes[did] = {"node_id":did,"type":"DaemonSet","namespace":ds.metadata.namespace,"labels":json.dumps(ds.metadata.labels or {})}
+
+    # Ingress -> Service
+    for ing in net.list_ingress_for_all_namespaces().items:
+        iid = nid("ingress", ing.metadata.namespace, ing.metadata.name)
+        nodes[iid] = {"node_id":iid,"type":"Ingress","namespace":ing.metadata.namespace,"labels":json.dumps(ing.metadata.labels or {})}
+        spec = ing.spec
+        if spec and spec.rules:
+            for r in spec.rules:
+                if r.http and r.http.paths:
+                    for p in r.http.paths:
+                        if p.backend and p.backend.service and p.backend.service.name:
+                            sid = nid("service", ing.metadata.namespace, p.backend.service.name)
+                            edges.append({"src_id":iid,"dst_id":sid,"etype":"topology","w":1.0,"lead_seconds":0,"features":json.dumps({"path": p.path or "/"})})
+
+    # HPA -> target (Deployment/StatefulSet)
+    try:
+        for h in autos.list_horizontal_pod_autoscaler_for_all_namespaces().items:
+            tid = nid(h.spec.scale_target_ref.kind, h.metadata.namespace, h.spec.scale_target_ref.name)
+            hid = nid("hpa", h.metadata.namespace, h.metadata.name)
+            nodes[hid] = {"node_id":hid,"type":"HPA","namespace":h.metadata.namespace,"labels":json.dumps(h.metadata.labels or {})}
+            nodes.setdefault(tid, {"node_id":tid,"type":h.spec.scale_target_ref.kind,"namespace":h.metadata.namespace,"labels":json.dumps({})})
+            edges.append({"src_id":hid,"dst_id":tid,"etype":"control","w":0.8,"lead_seconds":0,"features":json.dumps({})})
+    except Exception:
+        pass
+
+    # Jobs/CronJobs
+    for cj in batch.list_cron_job_for_all_namespaces().items:
+        cjid = nid("cronjob", cj.metadata.namespace, cj.metadata.name)
+        nodes[cjid] = {"node_id":cjid,"type":"CronJob","namespace":cj.metadata.namespace,"labels":json.dumps(cj.metadata.labels or {})}
+    for j in batch.list_job_for_all_namespaces().items:
+        jid = nid("job", j.metadata.namespace, j.metadata.name)
+        nodes[jid] = {"node_id":jid,"type":"Job","namespace":j.metadata.namespace,"labels":json.dumps(j.metadata.labels or {})}
+        for o in j.metadata.owner_references or []:
+            if o.kind=="CronJob":
+                cjid = nid("cronjob", j.metadata.namespace, o.name)
+                edges.append({"src_id":cjid,"dst_id":jid,"etype":"topology","w":1.0,"lead_seconds":0,"features":json.dumps({})})
+
+    # (Optional) influence weights can be computed later using S3_SIGNALS_PREFIX
+
+    # DataFrames
+    nodes_df = pd.DataFrame.from_records(list(nodes.values()))
+    edges_df = pd.DataFrame.from_records(edges)
+
+    return nodes_df, edges_df
+
+def to_parquet_bytes(df: pd.DataFrame) -> bytes:
+    # cast objects to string
+    df = df.copy()
+    for c in df.columns:
+        if df[c].dtype == "object":
+            df[c] = df[c].astype("string")
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    buf = io.BytesIO()
+    pq.write_table(table, buf, compression="ZSTD")
+    return buf.getvalue()
+
+def main():
+    nodes_df, edges_df = build_graph()
+    ts = now_utc()
+    date_part = ts.strftime("%Y-%m-%d")
+    hour_part = ts.strftime("%H")
+    prefix = f"{S3_PREFIX_GRAPH}/date={date_part}/hour={hour_part}"
+    nodes_key = f"{prefix}/nodes.parquet"
+    edges_key = f"{prefix}/edges.parquet"
+
+    s3_put_bytes(nodes_key, to_parquet_bytes(nodes_df))
+    s3_put_bytes(edges_key, to_parquet_bytes(edges_df))
+
+    # write/update pointer
+    current = {"nodes": f"s3://{S3_BUCKET}/{nodes_key}",
+               "edges": f"s3://{S3_BUCKET}/{edges_key}",
+               "generated_at": ts.isoformat()}
+    s3_put_bytes(f"{S3_PREFIX_GRAPH}/current.json", json.dumps(current, indent=2).encode())
+    print(f"[OK] nodes={len(nodes_df):,}, edges={len(edges_df):,} -> s3://{S3_BUCKET}/{prefix}/ (pointer updated)")
+
+if __name__ == "__main__":
+    main()
